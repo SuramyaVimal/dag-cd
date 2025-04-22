@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import io
 
 # -------------------------------
-# UI Styling
+# UI Styling 
 # -------------------------------
 st.set_page_config(page_title="TAC to DAG Visualizer", layout="wide")
 st.markdown("""
