@@ -54,11 +54,13 @@ def parse_tac_to_dag(tac_code):
         tokens = expr.strip().split()
 
         if len(tokens) == 1:
-            G.add_node(target, label=tokens[0])
+            G.add_node(target, label=target)
             expr_map[target] = target
+
         elif len(tokens) == 3:
             op1, operator, op2 = tokens
 
+            # Operator node
             node_name = f'{operator}_{count}'
             G.add_node(node_name, label=operator)
             count += 1
@@ -68,12 +70,17 @@ def parse_tac_to_dag(tac_code):
 
             G.add_edge(left, node_name)
             G.add_edge(right, node_name)
-            expr_map[target] = node_name
+
+            # Link operator node to result variable node
+            G.add_node(target, label=target)
+            G.add_edge(node_name, target)
+
+            expr_map[target] = target
         else:
             st.warning(f"⚠️ Invalid TAC line skipped: `{line}`")
 
     return G
-
+  
 # -------------------------------
 # Sequence Generators
 # -------------------------------
