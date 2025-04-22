@@ -60,7 +60,7 @@ def parse_tac_to_dag(tac_code):
         elif len(tokens) == 3:
             op1, operator, op2 = tokens
 
-            # Operator node
+            # Create operator node
             node_name = f'{operator}_{count}'
             G.add_node(node_name, label=operator)
             count += 1
@@ -71,7 +71,7 @@ def parse_tac_to_dag(tac_code):
             G.add_edge(left, node_name)
             G.add_edge(right, node_name)
 
-            # Link operator node to result variable node
+            # Create target node and connect it to operator node
             G.add_node(target, label=target)
             G.add_edge(node_name, target)
 
@@ -80,7 +80,7 @@ def parse_tac_to_dag(tac_code):
             st.warning(f"⚠️ Invalid TAC line skipped: `{line}`")
 
     return G
-  
+
 # -------------------------------
 # Sequence Generators
 # -------------------------------
@@ -116,6 +116,14 @@ if st.button("🚀 Generate DAG and Sequences"):
             if G.number_of_nodes() == 0:
                 st.error("DAG generation failed. Please check TAC input.")
             else:
+                # ✅ Print all DAG nodes with labels
+                st.subheader("📌 DAG Nodes")
+                node_labels = nx.get_node_attributes(G, 'label')
+                for node in G.nodes():
+                    label = node_labels.get(node, "N/A")
+                    st.markdown(f"- `{node}` : **{label}**")
+
+                # 🔍 DAG visualization and sequences
                 col1, col2 = st.columns([2, 1])
 
                 with col1:
