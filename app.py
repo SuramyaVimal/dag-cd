@@ -3,29 +3,26 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import re
 import io
-from functools import lru_cache
+import json
 
 # -------------------------------
-# UI Styling 
+# UI Styling
 # -------------------------------
 st.set_page_config(page_title="TAC to DAG Visualizer", layout="wide")
 st.markdown("""
     <style>
+        body {
+            background-color: #f5f7fa;
+        }
         .main {
-            background-color: #f0f2f6;
+            padding: 2rem;
         }
-        .block-container {
-            padding-top: 2rem;
-            padding-bottom: 2rem;
+        h1, h2, h3 {
+            color: #2c3e50;
         }
-        h1 {
-            color: #2C3E50;
-        }
-        .css-1kyxreq {
-            font-size: 18px;
-        }
-        .stProgress .st-bo {
-            background-color: #4CAF50;
+        .stTextArea textarea {
+            font-family: monospace;
+            font-size: 16px;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -33,16 +30,16 @@ st.markdown("""
 # -------------------------------
 # Header
 # -------------------------------
-st.title("🔁 TAC to DAG Visualizer with Sequence Generator")
-st.markdown("Enter your **Three Address Code (TAC)** below to visualize the DAG and view both heuristic and optimal instruction sequences.")
+st.title("🧠 TAC to DAG Visualizer")
+st.markdown("Visualize your **Three Address Code (TAC)** as a Directed Acyclic Graph and view optimized instruction sequences.")
 
 # -------------------------------
 # Input Area
 # -------------------------------
-tac_code = st.text_area("✍️ Enter TAC Code", height=250, placeholder="Example:\na = b + c\nd = a + e\nf = d + g")
+tac_code = st.text_area("📥 Enter TAC Code:", height=200, placeholder="Example:\na = b + c\nd = a + e\nf = d + g")
 
 # -------------------------------
-# TAC Parser (Optimized with caching)
+# TAC to DAG Conversion
 # -------------------------------
 @st.cache_data
 def parse_tac_to_dag(tac_code):
@@ -50,19 +47,21 @@ def parse_tac_to_dag(tac_code):
     G = nx.DiGraph()
     expr_map = {}
     count = 0
-
-    assignment_pattern = re.compile(r'^\s*(\w+)\s*=\s*(.+)\s*$')
+    lhs_set = set()
+    
+    pattern = re.compile(r'^\s*(\w+)\s*=\s*(.+)$')
 
     for line in lines:
         if '=' not in line:
             continue
 
-        match = assignment_pattern.match(line)
+        match = pattern.match(line)
         if not match:
             continue
 
         target, expr = match.groups()
         tokens = expr.strip().split()
+        lhs_set.add(target)
 
         if len(tokens) == 1:
             G.add_node(target, label=target)
@@ -90,170 +89,104 @@ def parse_tac_to_dag(tac_code):
 
             expr_map[target] = target
 
-        else:
-            st.warning(f"⚠️ Invalid TAC line skipped: `{line}`")
-
-    return G
+    return G, lhs_set
 
 # -------------------------------
-# Sequence Generators (Optimized with caching)
+# Sequence Generators
 # -------------------------------
+@st.cache_data
+def get_optimal_sequence(G, lhs_set):
+    topo = list(nx.topological_sort(G))
+    labels = nx.get_node_attributes(G, 'label')
+    lhs_sequence = [node for node in topo if node in lhs_set and labels.get(node) == node]
+    return lhs_sequence
+
 @st.cache_data
 def get_heuristic_sequence(G):
-    successor_counts = {node: len(list(G.successors(node))) for node in G.nodes()}
+    succ_count = {n: len(list(G.successors(n))) for n in G.nodes()}
     topo = list(nx.topological_sort(G))
-    topo.sort(key=lambda n: successor_counts.get(n, 0))
+    topo.sort(key=lambda x: succ_count.get(x, 0))
     return topo
 
-@st.cache_data
-def get_optimal_sequence(G):
-    return list(nx.topological_sort(G))
-
 # -------------------------------
-# DAG Visualizer (Matplotlib with fix)
+# Layout Generator
 # -------------------------------
 @st.cache_data
-def prepare_layout(_G):  # FIXED: Added underscore so Streamlit ignores hashing
-    if _G.number_of_nodes() > 100:
-        return nx.kamada_kawai_layout(_G)
-    else:
-        return nx.spring_layout(_G, seed=42)
+def prepare_layout(_G):
+    return nx.spring_layout(_G, seed=42)
 
-def draw_dag(G, pos=None):
-    if pos is None:
-        pos = prepare_layout(G)
-
+# -------------------------------
+# DAG Drawer
+# -------------------------------
+def draw_dag(G, pos):
     labels = nx.get_node_attributes(G, 'label')
     plt.figure(figsize=(12, 8))
-
-    if G.number_of_nodes() > 500:
-        batches = [list(G.nodes())[i:i+100] for i in range(0, G.number_of_nodes(), 100)]
-        for batch in batches:
-            nx.draw_networkx_nodes(G, pos, nodelist=batch, node_color='#6BAED6', node_size=1500)
-
-        nx.draw_networkx_edges(G, pos, edge_color='#636363', alpha=0.7)
-        nx.draw_networkx_labels(G, pos, labels=labels, font_weight='bold')
-    else:
-        nx.draw(G, pos, with_labels=True, labels=labels,
-                node_size=2500, node_color='#6BAED6', font_size=11,
-                font_weight='bold', edge_color='#636363')
-
-    if G.number_of_nodes() > 1000:
-        img_bytes = io.BytesIO()
-        plt.savefig(img_bytes, format='png', dpi=100)
-        img_bytes.seek(0)
-        st.image(img_bytes)
-    else:
-        st.pyplot(plt.gcf())
-
+    nx.draw(G, pos, with_labels=True, labels=labels,
+            node_size=2000, node_color="#74b9ff", font_size=11, font_weight='bold', edge_color="#636e72")
+    st.pyplot(plt.gcf())
     plt.close()
 
 # -------------------------------
-# Generate Button with Error Handling
+# Main Logic
 # -------------------------------
 if st.button("🚀 Generate DAG and Sequences"):
     if not tac_code.strip():
-        st.error("Please enter TAC code before generating.")
+        st.error("Please enter valid TAC code.")
     else:
         try:
-            with st.spinner("Parsing TAC code..."):
-                G = parse_tac_to_dag(tac_code)
-
-            if G.number_of_nodes() == 0:
-                st.error("DAG generation failed. Please check TAC input.")
-            else:
-                num_nodes = G.number_of_nodes()
-                num_edges = G.number_of_edges()
-
-                st.subheader("📊 DAG Summary")
-                col_stats1, col_stats2, col_stats3 = st.columns(3)
-                col_stats1.metric("Nodes", num_nodes)
-                col_stats2.metric("Edges", num_edges)
-                col_stats3.metric("Complexity", f"{num_edges/max(1, num_nodes):.2f}")
-
-                with st.expander("📌 DAG Nodes and Labels"):
-                    node_labels = nx.get_node_attributes(G, 'label')
-                    for node in G.nodes():
-                        label = node_labels.get(node, "N/A")
-                        st.markdown(f"- `{node}` : **{label}**")
-
-                col1, col2 = st.columns([2, 1])
-
-                with col1:
+            with st.spinner("Processing..."):
+                G, lhs_vars = parse_tac_to_dag(tac_code)
+                if G.number_of_nodes() == 0:
+                    st.error("Empty or invalid TAC input.")
+                else:
                     st.subheader("📈 DAG Visualization")
                     pos = prepare_layout(G)
                     draw_dag(G, pos)
 
-                with col2:
-                    st.subheader("📋 Sequences")
+                    st.subheader("📋 Instruction Sequences")
+                    optimal_seq = get_optimal_sequence(G, lhs_vars)
+                    heuristic_seq = get_heuristic_sequence(G)
 
-                    with st.spinner("Generating optimal sequence..."):
-                        optimal = get_optimal_sequence(G)
+                    st.markdown("**✅ Optimal Sequence (LHS variables only):**")
+                    st.code(" → ".join(optimal_seq), language='text')
 
-                    with st.spinner("Generating heuristic sequence..."):
-                        heuristic = get_heuristic_sequence(G)
+                    st.markdown("**🧠 Heuristic Sequence (All Nodes):**")
+                    st.code(" → ".join(heuristic_seq), language='text')
 
-                    st.markdown("**✅ Heuristic Sequence:**")
-                    st.code(" → ".join(heuristic), language='text')
+                    if set(optimal_seq) != set(heuristic_seq):
+                        st.info("Heuristic includes internal ops; Optimal only includes assignments.")
 
-                    st.markdown("**✅ Optimal Sequence:**")
-                    st.code(" → ".join(optimal), language='text')
+                    # Export
+                    st.subheader("📤 Export")
+                    export_col1, export_col2 = st.columns(2)
 
-                    if heuristic != optimal:
-                        st.info("📝 The heuristic and optimal sequences differ.")
-                    else:
-                        st.success("✅ The heuristic and optimal sequences are identical.")
+                    with export_col1:
+                        export_text = f"Optimal Sequence:\n{' → '.join(optimal_seq)}\n\nHeuristic Sequence:\n{' → '.join(heuristic_seq)}"
+                        st.download_button("📄 Download Sequences", export_text, "tac_sequences.txt", "text/plain")
 
-                st.subheader("📤 Export Options")
-                export_col1, export_col2 = st.columns(2)
-
-                with export_col1:
-                    if st.button("Export Sequences as Text"):
-                        export_text = f"Optimal Sequence:\n{' → '.join(optimal)}\n\nHeuristic Sequence:\n{' → '.join(heuristic)}"
-                        st.download_button(
-                            label="Download Sequences",
-                            data=export_text,
-                            file_name="tac_sequences.txt",
-                            mime="text/plain"
-                        )
-
-                with export_col2:
-                    if st.button("Export Graph Data"):
-                        import json
+                    with export_col2:
                         graph_data = nx.node_link_data(G)
-                        st.download_button(
-                            label="Download Graph JSON",
-                            data=json.dumps(graph_data),
-                            file_name="dag_data.json",
-                            mime="application/json"
-                        )
+                        st.download_button("🧬 Download DAG JSON", json.dumps(graph_data), "dag_data.json", "application/json")
 
         except Exception as e:
-            st.exception(f"An error occurred: {e}")
+            st.error(f"An error occurred: {e}")
 
 # -------------------------------
 # Help Section
 # -------------------------------
-with st.expander("ℹ️ How to Use This Tool"):
+with st.expander("ℹ️ How to Use"):
     st.markdown("""
-    ### Input Format:
-    Enter Three Address Code (TAC) with each statement on a new line in the format:
-    ```
-    result = operand1 operator operand2
-    ```
-    
-    ### Examples:
+    - Write TAC code in the format: `result = operand1 operator operand2`
+    - One instruction per line
+    - Click **Generate** to view the DAG and sequences
+
+    **Example:**
     ```
     a = b + c
-    d = a * e
-    f = d - g
+    d = a + e
+    f = d + g
     ```
-    
-    ### Features:
-    - **DAG Visualization**: See the code represented as a Directed Acyclic Graph
-    - **Optimal Sequence**: Topologically sorted sequence for execution
-    - **Heuristic Sequence**: Alternative sequence considering dependencies
     """)
 
 st.markdown("---")
-st.markdown("TAC to DAG Visualizer v2.0 - Optimized for Performance")
+st.markdown("🔧 Made with 💙 by Suramya | TAC to DAG Visualizer v2.1")
