@@ -1,7 +1,6 @@
 import streamlit as st
 import networkx as nx
 import matplotlib.pyplot as plt
-import plotly.graph_objects as go
 import re
 import io
 from functools import lru_cache
@@ -41,13 +40,6 @@ st.markdown("Enter your **Three Address Code (TAC)** below to visualize the DAG 
 # Input Area
 # -------------------------------
 tac_code = st.text_area("✍️ Enter TAC Code", height=250, placeholder="Example:\na = b + c\nd = a + e\nf = d + g")
-
-# Options for visualization
-visualization_type = st.radio(
-    "Select Visualization Type",
-    ("matplotlib", "plotly"),
-    horizontal=True
-)
 
 # -------------------------------
 # TAC Parser (Optimized with caching)
@@ -126,19 +118,19 @@ def get_optimal_sequence(G):
     return list(nx.topological_sort(G))
 
 # -------------------------------
-# DAG Visualizers (Both Matplotlib and Plotly)
+# DAG Visualizer (Matplotlib with optimizations)
 # -------------------------------
 @st.cache_data
 def prepare_layout(G):
-    """Prepare node layout, reusable for both visualization methods"""
+    """Prepare node layout, reusable for visualization"""
     # Choose appropriate layout algorithm based on graph size
     if G.number_of_nodes() > 100:
         return nx.kamada_kawai_layout(G)
     else:
         return nx.spring_layout(G, seed=42)
 
-def draw_dag_matplotlib(G, pos=None):
-    """Draw DAG using Matplotlib"""
+def draw_dag(G, pos=None):
+    """Draw DAG using Matplotlib with optimizations for large graphs"""
     if pos is None:
         pos = prepare_layout(G)
         
@@ -172,95 +164,6 @@ def draw_dag_matplotlib(G, pos=None):
         st.pyplot(plt.gcf())
         
     plt.close()
-
-def draw_dag_plotly(G, pos=None):
-    """Draw DAG using Plotly for interactive visualization"""
-    if pos is None:
-        pos = prepare_layout(G)
-        
-    # Create edge traces
-    edge_x = []
-    edge_y = []
-    
-    for edge in G.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
-        
-    edge_trace = go.Scatter(
-        x=edge_x, y=edge_y,
-        line=dict(width=1.5, color='#888'),
-        hoverinfo='none',
-        mode='lines')
-    
-    # Create node traces
-    node_x = []
-    node_y = []
-    node_text = []
-    node_labels = nx.get_node_attributes(G, 'label')
-    
-    for node in G.nodes():
-        x, y = pos[node]
-        node_x.append(x)
-        node_y.append(y)
-        label = node_labels.get(node, node)
-        node_text.append(f"{node}: {label}")
-    
-    node_trace = go.Scatter(
-        x=node_x, y=node_y,
-        mode='markers+text',
-        text=[node_labels.get(node, node) for node in G.nodes()],
-        textposition="middle center",
-        textfont=dict(
-            size=12,
-            color='black'
-        ),
-        marker=dict(
-            color='#6BAED6',
-            size=30,
-            line=dict(width=2, color='#000000')
-        ),
-        hovertext=node_text,
-        hoverinfo='text'
-    )
-    
-    # Create figure
-    fig = go.Figure(
-        data=[edge_trace, node_trace],
-        layout=go.Layout(
-            showlegend=False,
-            hovermode='closest',
-            margin=dict(b=20, l=5, r=5, t=40),
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
-        )
-    )
-    
-    # Add interactivity options
-    fig.update_layout(
-        title="Directed Acyclic Graph (DAG) Visualization",
-        title_x=0.5,
-        dragmode='pan',
-        clickmode='event+select',
-        uirevision='static'
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-# -------------------------------
-# Performance Monitoring
-# -------------------------------
-def monitor_performance(func):
-    """Decorator to monitor function performance"""
-    def wrapper(*args, **kwargs):
-        progress_bar = st.progress(0)
-        for i in range(100):
-            progress_bar.progress(i + 1)
-        result = func(*args, **kwargs)
-        progress_bar.empty()
-        return result
-    return wrapper
 
 # -------------------------------
 # Generate Button with Error Handling
@@ -300,12 +203,8 @@ if st.button("🚀 Generate DAG and Sequences"):
 
                 with col1:
                     st.subheader("📈 DAG Visualization")
-                    # Use selected visualization method
                     pos = prepare_layout(G)
-                    if visualization_type == "matplotlib":
-                        draw_dag_matplotlib(G, pos)
-                    else:  # plotly
-                        draw_dag_plotly(G, pos)
+                    draw_dag(G, pos)
 
                 with col2:
                     st.subheader("📋 Sequences")
@@ -382,7 +281,7 @@ with st.expander("ℹ️ How to Use This Tool"):
     
     ### Performance:
     - This tool can handle up to 1000+ nodes efficiently
-    - For very large inputs, use the Plotly visualization option
+    - For large inputs, the visualization will automatically adjust
     """)
 
 # Add footer with version info
